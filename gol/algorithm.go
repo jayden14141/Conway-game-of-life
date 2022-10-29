@@ -62,7 +62,7 @@ func calculateAliveCells(p Params, world [][]byte) []util.Cell {
 	for y := 0; y < p.ImageHeight; y++ {
 		for x := 0; x < p.ImageWidth; x++ {
 			if world[y][x] == 255 {
-				aliveCells = append(aliveCells, util.Cell{x, y})
+				aliveCells = append(aliveCells, util.Cell{X: x, Y: y})
 			}
 		}
 	}

@@ -1,5 +1,11 @@
 package gol
 
+import (
+	"strconv"
+
+	"uk.ac.bris.cs/gameoflife/util"
+)
+
 type distributorChannels struct {
 	events     chan<- Event
 	ioCommand  chan<- ioCommand
@@ -13,22 +19,12 @@ type distributorChannels struct {
 // 	return
 // }
 
-
 // func calculateAliveCells(world [][]uint8) (alive []util.Cell) {
 // 	return
 // }
 
-// Constructs 'world' array every time, reading bytes from io.go
-func constructWorld(b chan uint8) [][] uint8 {
-	byte := <- b
-	return
-}
-
-
-
 // distributor divides the work between workers and interacts with other goroutines.
 func distributor(p Params, c distributorChannels) {
-
 
 	// TODO: Create a 2D slice to store the world.
 	world := make([][]uint8, p.ImageHeight)
@@ -37,19 +33,42 @@ func distributor(p Params, c distributorChannels) {
 	}
 
 	turn := 0
-	aliveCells := make([]util.Cell, p.ImageHeight * p.ImageWidth)
-	// TODO: Execute all turns of the Game of Life.
-	for t:= 0; t < p.Turns; t++ {
-		world = calculateNextState(constructWorld(c.ioInput))
-		calculateAliveCells()
+	filename := strconv.Itoa(p.ImageHeight) + "x" + strconv.Itoa(p.ImageWidth)
 
+	// Commands IO to read the initial file, giving the filename via the channel.
+	c.ioCommand <- 1
+	c.ioFilename <- filename
+	for y := 0; y < p.ImageHeight; y++ {
+		for x := 0; x < p.ImageWidth; x++ {
+			num := <-c.ioInput
+			world[y][x] = num
+		}
 	}
+
+	// TODO: Execute all turns of the Game of Life.
+
+	for t := 0; t < p.Turns; t++ {
+		world = calculateNextState(p, world)
+		// Send the output and invoke writePgmImage() in io.go
+		// Sends the world slice to io.go
+		c.ioCommand <- 0
+		c.ioFilename <- filename
+		for y := 0; y < p.ImageHeight; y++ {
+			for x := 0; x < p.ImageWidth; x++ {
+				c.ioOutput <- world[y][x]
+			}
+		}
+	}
+
 	// TODO: Report the final state using FinalTurnCompleteEvent.
-	report := FinalTurnComplete {
+
+	aliveCells := make([]util.Cell, p.ImageHeight*p.ImageWidth)
+	aliveCells = calculateAliveCells(p, world)
+	report := FinalTurnComplete{
 		CompletedTurns: p.Turns,
-		Alive : ~
+		Alive:          aliveCells,
 	}
-	c.event <- report
+	c.events <- report
 	// Make sure that the Io has finished any output before exiting.
 	c.ioCommand <- ioCheckIdle
 	<-c.ioIdle
