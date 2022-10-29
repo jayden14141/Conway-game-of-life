@@ -15,17 +15,21 @@ type distributorChannels struct {
 	ioInput    <-chan uint8
 }
 
-// func calculateNextState(world [][]uint8) (result [][]uint8) {
-// 	return
-// }
-
-// func calculateAliveCells(world [][]uint8) (alive []util.Cell) {
-// 	return
-// }
+// startY <= target < endY,
+// startX <= target < endX (Same for every worker since we slice horizontally)
+// Modify params in calculateNextState
+func worker(p Params, startY, endY, startX, endX int, world [][]uint8, out chan<- [][]uint8) {
+	newPart := make([][]uint8, endY-startY)
+	for i := range newPart {
+		newPart[i] = make([]uint8, endX-startX)
+		copy(newPart[i], world[startY+i])
+	}
+	newPart = calculateNextState(p, world)
+	out <- newPart
+}
 
 // distributor divides the work between workers and interacts with other goroutines.
 func distributor(p Params, c distributorChannels) {
-
 	// TODO: Create a 2D slice to store the world.
 	world := make([][]uint8, p.ImageHeight)
 	for i := range world {
@@ -48,7 +52,18 @@ func distributor(p Params, c distributorChannels) {
 	// TODO: Execute all turns of the Game of Life.
 
 	for t := 0; t < p.Turns; t++ {
-		world = calculateNextState(p, world)
+		if p.Threads == 1 {
+			world = calculateNextState(p, world)
+		} else {
+			var worldFragment [][]uint8
+			channels := make([]chan [][]uint8, p.Threads)
+			unit := p.ImageHeight / p.Threads
+			for i := 0; i < p.Threads; i++ {
+				channels[i] = make(chan [][]uint8)
+				go worker(p, i*unit, (i+1)*unit, 0, p.ImageWidth, world, channels[i])
+				worldFragment = append(worldFragment, <-channels[i]...)
+			}
+		}
 		// Send the output and invoke writePgmImage() in io.go
 		// Sends the world slice to io.go
 		c.ioCommand <- 0
