@@ -55,16 +55,17 @@ func calculateNextState(height, width, startY, endY int, world [][]byte) [][]byt
 	return newWorld
 }
 
-func calculateAliveCells(p Params, world [][]byte) []util.Cell {
+func calculateAliveCells(p Params, world [][]byte) (int, []util.Cell) {
 
 	var aliveCells []util.Cell
-
+	count := 0
 	for y := 0; y < p.ImageHeight; y++ {
 		for x := 0; x < p.ImageWidth; x++ {
 			if world[y][x] == 255 {
+				count++
 				aliveCells = append(aliveCells, util.Cell{X: x, Y: y})
 			}
 		}
 	}
-	return aliveCells
+	return count, aliveCells
 }

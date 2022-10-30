@@ -57,7 +57,6 @@ func distributor(p Params, c distributorChannels) {
 		world[i] = make([]uint8, p.ImageWidth)
 	}
 
-	turn := 0
 	filename := strconv.Itoa(p.ImageHeight) + "x" + strconv.Itoa(p.ImageWidth)
 
 	// Commands IO to read the initial file, giving the filename via the channel.
@@ -70,10 +69,35 @@ func distributor(p Params, c distributorChannels) {
 		}
 	}
 
+	// c.ioCommand <- 0
+	// outFilename := strconv.Itoa(p.ImageHeight) + "x" + strconv.Itoa(p.ImageWidth) + "x" + strconv.Itoa(0)
+	// c.ioFilename <- outFilename
+	// for y := 0; y < p.ImageHeight; y++ {
+	// 	for x := 0; x < p.ImageWidth; x++ {
+	// 		c.ioOutput <- world[y][x]
+	// 	}
+	// }
 	// TODO: Execute all turns of the Game of Life.
-
-	// *Requires Waitgroup and mutexes before sending to io.go*
+	turn := 0
+	// ticker := time.NewTicker(2 * time.Second)
+	// done := make(chan bool)
 	for t := 0; t < p.Turns; t++ {
+		// go func() {
+		// 	for {
+		// 		select {
+		// 		case <-done:
+		// 			return
+		// 		case <-ticker.C:
+		// 			turn = t
+		// 			aliveCount, _ := calculateAliveCells(p, world)
+		// 			aliveReport := AliveCellsCount{
+		// 				CompletedTurns: turn,
+		// 				CellsCount:     aliveCount,
+		// 			}
+		// 			c.events <- aliveReport
+		// 		}
+		// 	}
+		// }()
 		if p.Threads == 1 {
 			world = calculateNextState(p.ImageHeight, p.ImageWidth, 0, p.ImageHeight, world)
 		} else {
@@ -94,21 +118,27 @@ func distributor(p Params, c distributorChannels) {
 				copy(world[j], worldFragment[j])
 			}
 		}
-		// Send the output and invoke writePgmImage() in io.go
-		// Sends the world slice to io.go
-		// c.ioCommand <- 0
-		// c.ioFilename <- filename
-		// for y := 0; y < p.ImageHeight; y++ {
-		// 	for x := 0; x < p.ImageWidth; x++ {
-		// 		c.ioOutput <- world[y][x]
+		// if t == 0 || t == p.Turns-1 {
+		// 	c.ioCommand <- 0
+		// 	outFilename := strconv.Itoa(p.ImageHeight) + "x" + strconv.Itoa(p.ImageWidth) + "x" + strconv.Itoa(t+1)
+		// 	c.ioFilename <- outFilename
+		// 	for y := 0; y < p.ImageHeight; y++ {
+		// 		for x := 0; x < p.ImageWidth; x++ {
+		// 			c.ioOutput <- world[y][x]
+		// 		}
 		// 	}
 		// }
-	}
 
+	}
+	// ticker.Stop()
+	// done <- true
+
+	// Send the output and invoke writePgmImage() in io.go
+	// Sends the world slice to io.go
 	// TODO: Report the final state using FinalTurnCompleteEvent.
 
 	aliveCells := make([]util.Cell, p.ImageHeight*p.ImageWidth)
-	aliveCells = calculateAliveCells(p, world)
+	_, aliveCells = calculateAliveCells(p, world)
 	report := FinalTurnComplete{
 		CompletedTurns: p.Turns,
 		Alive:          aliveCells,
