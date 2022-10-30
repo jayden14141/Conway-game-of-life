@@ -24,7 +24,8 @@ func worker(p Params, startY, endY, startX, endX int, world [][]uint8, out chan<
 		newPart[i] = make([]uint8, endX-startX)
 		copy(newPart[i], world[startY+i])
 	}
-	newPart = calculateNextState(p, world)
+	newPart = calculateNextState(p.ImageHeight, p.ImageWidth, startY, endY, world)
+
 	out <- newPart
 }
 
@@ -51,9 +52,10 @@ func distributor(p Params, c distributorChannels) {
 
 	// TODO: Execute all turns of the Game of Life.
 
+	// *Requires Waitgroup and mutexes before sending to io.go*
 	for t := 0; t < p.Turns; t++ {
 		if p.Threads == 1 {
-			world = calculateNextState(p, world)
+			world = calculateNextState(p.ImageHeight, p.ImageWidth, 0, p.ImageHeight, world)
 		} else {
 			var worldFragment [][]uint8
 			channels := make([]chan [][]uint8, p.Threads)

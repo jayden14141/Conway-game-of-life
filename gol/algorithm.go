@@ -8,10 +8,10 @@ func mod(a, b int) int {
 	return (a%b + b) % b
 }
 
-func calculateNeighbours(p Params, world [][]byte, y int, x int) int {
+func calculateNeighbours(height, width int, world [][]byte, y int, x int) int {
 
-	h := p.ImageHeight
-	w := p.ImageWidth
+	h := len(world)
+	w := len(world[0])
 	noOfNeighbours := 0
 
 	neighbour := []byte{world[mod(y+1, h)][mod(x, w)], world[mod(y+1, h)][mod(x+1, w)], world[mod(y, h)][mod(x+1, w)],
@@ -27,7 +27,7 @@ func calculateNeighbours(p Params, world [][]byte, y int, x int) int {
 	return noOfNeighbours
 }
 
-func calculateNextState(p Params, world [][]byte) [][]byte {
+func calculateNextState(height, width, startY, endY int, world [][]byte) [][]byte {
 
 	newWorld := make([][]byte, len(world))
 	for i := range world {
@@ -35,9 +35,9 @@ func calculateNextState(p Params, world [][]byte) [][]byte {
 		copy(newWorld[i], world[i])
 	}
 
-	for y := 0; y < p.ImageHeight; y++ {
-		for x := 0; x < p.ImageWidth; x++ {
-			noOfNeighbours := calculateNeighbours(p, world, y, x)
+	for y := startY; y < endY; y++ {
+		for x := 0; x < width; x++ {
+			noOfNeighbours := calculateNeighbours(height, width, world, y, x)
 			if world[y][x] == 255 {
 				if noOfNeighbours < 2 {
 					newWorld[y][x] = 0
