@@ -10,8 +10,8 @@ func mod(a, b int) int {
 
 func calculateNeighbours(height, width int, world [][]byte, y int, x int) int {
 
-	h := len(world)
-	w := len(world[0])
+	h := height
+	w := width
 	noOfNeighbours := 0
 
 	neighbour := []byte{world[mod(y+1, h)][mod(x, w)], world[mod(y+1, h)][mod(x+1, w)], world[mod(y, h)][mod(x+1, w)],
@@ -29,16 +29,16 @@ func calculateNeighbours(height, width int, world [][]byte, y int, x int) int {
 
 func calculateNextState(height, width, startY, endY int, world [][]byte) [][]byte {
 
-	newWorld := make([][]byte, len(world))
-	for i := range world {
-		newWorld[i] = make([]byte, len(world[i]))
-		copy(newWorld[i], world[i])
+	newWorld := make([][]byte, endY-startY)
+	for i := 0; i < endY-startY; i++ {
+		newWorld[i] = make([]byte, len(world[0]))
+		// copy(newWorld[i], world[startY+i])
 	}
 
-	for y := startY; y < endY; y++ {
+	for y := 0; y < endY-startY; y++ {
 		for x := 0; x < width; x++ {
-			noOfNeighbours := calculateNeighbours(height, width, world, y, x)
-			if world[y][x] == 255 {
+			noOfNeighbours := calculateNeighbours(height, width, world, startY+y, x)
+			if world[startY+y][x] == 255 {
 				if noOfNeighbours < 2 {
 					newWorld[y][x] = 0
 				} else if noOfNeighbours == 2 || noOfNeighbours == 3 {
@@ -46,7 +46,7 @@ func calculateNextState(height, width, startY, endY int, world [][]byte) [][]byt
 				} else if noOfNeighbours > 3 {
 					newWorld[y][x] = 0
 				}
-			} else if world[y][x] == 0 && noOfNeighbours == 3 {
+			} else if world[startY+y][x] == 0 && noOfNeighbours == 3 {
 				newWorld[y][x] = 255
 			}
 		}
