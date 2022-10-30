@@ -5,6 +5,7 @@ import (
 	"os"
 	"runtime/trace"
 	"strconv"
+	"time"
 
 	"uk.ac.bris.cs/gameoflife/util"
 )
@@ -79,25 +80,25 @@ func distributor(p Params, c distributorChannels) {
 	// }
 	// TODO: Execute all turns of the Game of Life.
 	turn := 0
-	// ticker := time.NewTicker(2 * time.Second)
-	// done := make(chan bool)
+	ticker := time.NewTicker(2 * time.Second)
+	done := make(chan bool)
 	for t := 0; t < p.Turns; t++ {
-		// go func() {
-		// 	for {
-		// 		select {
-		// 		case <-done:
-		// 			return
-		// 		case <-ticker.C:
-		// 			turn = t
-		// 			aliveCount, _ := calculateAliveCells(p, world)
-		// 			aliveReport := AliveCellsCount{
-		// 				CompletedTurns: turn,
-		// 				CellsCount:     aliveCount,
-		// 			}
-		// 			c.events <- aliveReport
-		// 		}
-		// 	}
-		// }()
+		go func() {
+			for {
+				select {
+				case <-done:
+					return
+				case <-ticker.C:
+					turn = t
+					aliveCount, _ := calculateAliveCells(p, world)
+					aliveReport := AliveCellsCount{
+						CompletedTurns: turn,
+						CellsCount:     aliveCount,
+					}
+					c.events <- aliveReport
+				}
+			}
+		}()
 		if p.Threads == 1 {
 			world = calculateNextState(p.ImageHeight, p.ImageWidth, 0, p.ImageHeight, world)
 		} else {
@@ -129,9 +130,12 @@ func distributor(p Params, c distributorChannels) {
 		// 	}
 		// }
 
+		c.events <- TurnComplete{
+			CompletedTurns: t,
+		}
 	}
-	// ticker.Stop()
-	// done <- true
+	ticker.Stop()
+	done <- true
 
 	// Send the output and invoke writePgmImage() in io.go
 	// Sends the world slice to io.go
