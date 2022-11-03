@@ -1,9 +1,6 @@
 package gol
 
 import (
-	"log"
-	"os"
-	"runtime/trace"
 	"strconv"
 	"time"
 
@@ -36,20 +33,20 @@ func worker(p Params, startY, endY, startX, endX int, world [][]uint8, out chan<
 func distributor(p Params, c distributorChannels) {
 	// -----------------------Tracing----------------------------------
 	// "go tool trace out/trace.out"
-	f, err := os.Create("out/trace.out")
-	if err != nil {
-		log.Fatalf("failed to create trace output file: %v", err)
-	}
-	defer func() {
-		if err := f.Close(); err != nil {
-			log.Fatalf("failed to close trace file: %v", err)
-		}
-	}()
+	// f, err := os.Create("out/trace.out")
+	// if err != nil {
+	// 	log.Fatalf("failed to create trace output file: %v", err)
+	// }
+	// defer func() {
+	// 	if err := f.Close(); err != nil {
+	// 		log.Fatalf("failed to close trace file: %v", err)
+	// 	}
+	// }()
 
-	if err := trace.Start(f); err != nil {
-		log.Fatalf("failed to start trace: %v", err)
-	}
-	defer trace.Stop()
+	// if err := trace.Start(f); err != nil {
+	// 	log.Fatalf("failed to start trace: %v", err)
+	// }
+	// defer trace.Stop()
 	// -----------------------------------------------------------------
 
 	// TODO: Create a 2D slice to store the world.
@@ -70,35 +67,36 @@ func distributor(p Params, c distributorChannels) {
 		}
 	}
 
-	// c.ioCommand <- 0
-	// outFilename := strconv.Itoa(p.ImageHeight) + "x" + strconv.Itoa(p.ImageWidth) + "x" + strconv.Itoa(0)
-	// c.ioFilename <- outFilename
-	// for y := 0; y < p.ImageHeight; y++ {
-	// 	for x := 0; x < p.ImageWidth; x++ {
-	// 		c.ioOutput <- world[y][x]
-	// 	}
-	// }
+	c.ioCommand <- 0
+	outFilename := strconv.Itoa(p.ImageHeight) + "x" + strconv.Itoa(p.ImageWidth) + "x" + strconv.Itoa(0)
+	c.ioFilename <- outFilename
+	for y := 0; y < p.ImageHeight; y++ {
+		for x := 0; x < p.ImageWidth; x++ {
+			c.ioOutput <- world[y][x]
+		}
+	}
 	// TODO: Execute all turns of the Game of Life.
 	turn := 0
 	ticker := time.NewTicker(2 * time.Second)
 	done := make(chan bool)
-	for t := 0; t < p.Turns; t++ {
-		go func() {
-			for {
-				select {
-				case <-done:
-					return
-				case <-ticker.C:
-					turn = t
-					aliveCount, _ := calculateAliveCells(p, world)
-					aliveReport := AliveCellsCount{
-						CompletedTurns: turn,
-						CellsCount:     aliveCount,
-					}
-					c.events <- aliveReport
+	go func() {
+		for {
+			select {
+			case <-done:
+				return
+			case <-ticker.C:
+				aliveCount, _ := calculateAliveCells(p, world)
+				aliveReport := AliveCellsCount{
+					CompletedTurns: turn,
+					CellsCount:     aliveCount,
 				}
+				c.events <- aliveReport
 			}
-		}()
+		}
+	}()
+
+	for t := 0; t < p.Turns; t++ {
+		turn = t
 		if p.Threads == 1 {
 			world = calculateNextState(p.ImageHeight, p.ImageWidth, 0, p.ImageHeight, world)
 		} else {
@@ -119,16 +117,16 @@ func distributor(p Params, c distributorChannels) {
 				copy(world[j], worldFragment[j])
 			}
 		}
-		// if t == 0 || t == p.Turns-1 {
-		// 	c.ioCommand <- 0
-		// 	outFilename := strconv.Itoa(p.ImageHeight) + "x" + strconv.Itoa(p.ImageWidth) + "x" + strconv.Itoa(t+1)
-		// 	c.ioFilename <- outFilename
-		// 	for y := 0; y < p.ImageHeight; y++ {
-		// 		for x := 0; x < p.ImageWidth; x++ {
-		// 			c.ioOutput <- world[y][x]
-		// 		}
-		// 	}
-		// }
+		if t == 0 || t == p.Turns-1 {
+			c.ioCommand <- 0
+			outFilename := strconv.Itoa(p.ImageHeight) + "x" + strconv.Itoa(p.ImageWidth) + "x" + strconv.Itoa(t+1)
+			c.ioFilename <- outFilename
+			for y := 0; y < p.ImageHeight; y++ {
+				for x := 0; x < p.ImageWidth; x++ {
+					c.ioOutput <- world[y][x]
+				}
+			}
+		}
 
 		c.events <- TurnComplete{
 			CompletedTurns: t,
