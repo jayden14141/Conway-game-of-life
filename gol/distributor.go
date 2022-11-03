@@ -29,6 +29,17 @@ func worker(p Params, startY, endY, startX, endX int, world [][]uint8, out chan<
 	out <- newPart
 }
 
+func handleOutput(p Params, c distributorChannels, world [][]uint8, t int) {
+	c.ioCommand <- 0
+	outFilename := strconv.Itoa(p.ImageHeight) + "x" + strconv.Itoa(p.ImageWidth) + "x" + strconv.Itoa(t)
+	c.ioFilename <- outFilename
+	for y := 0; y < p.ImageHeight; y++ {
+		for x := 0; x < p.ImageWidth; x++ {
+			c.ioOutput <- world[y][x]
+		}
+	}
+}
+
 // distributor divides the work between workers and interacts with other goroutines.
 func distributor(p Params, c distributorChannels) {
 	// -----------------------Tracing----------------------------------
@@ -67,14 +78,7 @@ func distributor(p Params, c distributorChannels) {
 		}
 	}
 
-	c.ioCommand <- 0
-	outFilename := strconv.Itoa(p.ImageHeight) + "x" + strconv.Itoa(p.ImageWidth) + "x" + strconv.Itoa(0)
-	c.ioFilename <- outFilename
-	for y := 0; y < p.ImageHeight; y++ {
-		for x := 0; x < p.ImageWidth; x++ {
-			c.ioOutput <- world[y][x]
-		}
-	}
+	handleOutput(p, c, world, 0)
 	// TODO: Execute all turns of the Game of Life.
 	turn := 0
 	ticker := time.NewTicker(2 * time.Second)
@@ -118,14 +122,7 @@ func distributor(p Params, c distributorChannels) {
 			}
 		}
 		if t == 0 || t == p.Turns-1 {
-			c.ioCommand <- 0
-			outFilename := strconv.Itoa(p.ImageHeight) + "x" + strconv.Itoa(p.ImageWidth) + "x" + strconv.Itoa(t+1)
-			c.ioFilename <- outFilename
-			for y := 0; y < p.ImageHeight; y++ {
-				for x := 0; x < p.ImageWidth; x++ {
-					c.ioOutput <- world[y][x]
-				}
-			}
+			handleOutput(p, c, world, t+1)
 		}
 
 		c.events <- TurnComplete{
