@@ -19,14 +19,16 @@ type distributorChannels struct {
 // startY <= target < endY,
 // startX <= target < endX (Same for every worker since we slice horizontally)
 // Modify params in calculateNextState
-func worker(p Params, startY, endY, startX, endX int, world [][]uint8, out chan<- [][]uint8) {
+func worker(p Params, startY, endY, startX, endX int, world [][]uint8, out chan<- [][]uint8, flip chan<- []util.Cell) {
+	flipFragment := make([]util.Cell, (endY-startY)*endX)
 	newPart := make([][]uint8, endY-startY)
 	for i := range newPart {
 		newPart[i] = make([]uint8, endX)
 		// copy(newPart[i], world[startY+i])
 	}
-	newPart = calculateNextState(p.ImageHeight, p.ImageWidth, startY, endY, world)
+	newPart, flipFragment = calculateNextState(p.ImageHeight, p.ImageWidth, startY, endY, world)
 	out <- newPart
+	flip <- flipFragment
 }
 
 func handleOutput(p Params, c distributorChannels, world [][]uint8, t int) {
@@ -42,26 +44,9 @@ func handleOutput(p Params, c distributorChannels, world [][]uint8, t int) {
 
 // distributor divides the work between workers and interacts with other goroutines.
 func distributor(p Params, c distributorChannels) {
-	// -----------------------Tracing----------------------------------
-	// "go tool trace out/trace.out"
-	// f, err := os.Create("out/trace.out")
-	// if err != nil {
-	// 	log.Fatalf("failed to create trace output file: %v", err)
-	// }
-	// defer func() {
-	// 	if err := f.Close(); err != nil {
-	// 		log.Fatalf("failed to close trace file: %v", err)
-	// 	}
-	// }()
-
-	// if err := trace.Start(f); err != nil {
-	// 	log.Fatalf("failed to start trace: %v", err)
-	// }
-	// defer trace.Stop()
-	// -----------------------------------------------------------------
-
 	// TODO: Create a 2D slice to store the world.
 	world := make([][]uint8, p.ImageHeight)
+	cellFlip := make([]util.Cell, p.ImageHeight*p.ImageWidth)
 	for i := range world {
 		world[i] = make([]uint8, p.ImageWidth)
 	}
@@ -75,10 +60,15 @@ func distributor(p Params, c distributorChannels) {
 		for x := 0; x < p.ImageWidth; x++ {
 			num := <-c.ioInput
 			world[y][x] = num
+			if num == 255 {
+				c.events <- CellFlipped{
+					CompletedTurns: 0,
+					Cell:           util.Cell{X: x, Y: y},
+				}
+			}
 		}
 	}
 
-	handleOutput(p, c, world, 0)
 	// TODO: Execute all turns of the Game of Life.
 	turn := 0
 	ticker := time.NewTicker(2 * time.Second)
@@ -98,39 +88,51 @@ func distributor(p Params, c distributorChannels) {
 			}
 		}
 	}()
-
 	for t := 0; t < p.Turns; t++ {
 		turn = t
 		if p.Threads == 1 {
-			world = calculateNextState(p.ImageHeight, p.ImageWidth, 0, p.ImageHeight, world)
+			world, cellFlip = calculateNextState(p.ImageHeight, p.ImageWidth, 0, p.ImageHeight, world)
 		} else {
 			var worldFragment [][]uint8
 			channels := make([]chan [][]uint8, p.Threads)
+			flipChan := make([]chan []util.Cell, p.Threads)
 			unit := int(p.ImageHeight / p.Threads)
 			for i := 0; i < p.Threads; i++ {
 				channels[i] = make(chan [][]uint8)
+				flipChan[i] = make(chan []util.Cell)
 				if i == p.Threads-1 {
 					// Handling with problems if threads division goes with remainders
-					go worker(p, i*unit, p.ImageHeight, 0, p.ImageWidth, world, channels[i])
+					go worker(p, i*unit, p.ImageHeight, 0, p.ImageWidth, world, channels[i], flipChan[i])
 				} else {
-					go worker(p, i*unit, (i+1)*unit, 0, p.ImageWidth, world, channels[i])
+					go worker(p, i*unit, (i+1)*unit, 0, p.ImageWidth, world, channels[i], flipChan[i])
 				}
-				worldFragment = append(worldFragment, <-channels[i]...)
+			}
+			for i := 0; i < p.Threads; i++ {
+				worldPart := <-channels[i]
+				worldFragment = append(worldFragment, worldPart...)
+				cellPart := <-flipChan[i]
+				cellFlip = append(cellFlip, cellPart...)
 			}
 			for j := range worldFragment {
 				copy(world[j], worldFragment[j])
 			}
 		}
-		if t == 0 || t == p.Turns-1 {
-			handleOutput(p, c, world, t+1)
-		}
+
+		// for _, cell := range cellFlip {
+		// 	c.events <- CellFlipped{
+		// 		CompletedTurns: turn,
+		// 		Cell:           cell,
+		// 	}
+		// }
 
 		c.events <- TurnComplete{
-			CompletedTurns: t,
+			CompletedTurns: turn,
 		}
 	}
 	ticker.Stop()
 	done <- true
+
+	// handleOutput(p, c, world, p.Turns)
 
 	// Send the output and invoke writePgmImage() in io.go
 	// Sends the world slice to io.go

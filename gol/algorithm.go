@@ -27,9 +27,10 @@ func calculateNeighbours(height, width int, world [][]byte, y int, x int) int {
 	return noOfNeighbours
 }
 
-func calculateNextState(height, width, startY, endY int, world [][]byte) [][]byte {
+func calculateNextState(height, width, startY, endY int, world [][]byte) ([][]byte, []util.Cell) {
 
 	newWorld := make([][]byte, endY-startY)
+	flipCell := make([]util.Cell, height, width)
 	for i := 0; i < endY-startY; i++ {
 		newWorld[i] = make([]byte, len(world[0]))
 		// copy(newWorld[i], world[startY+i])
@@ -41,18 +42,21 @@ func calculateNextState(height, width, startY, endY int, world [][]byte) [][]byt
 			if world[startY+y][x] == 255 {
 				if noOfNeighbours < 2 {
 					newWorld[y][x] = 0
+					flipCell = append(flipCell, util.Cell{X: x, Y: startY + y})
 				} else if noOfNeighbours == 2 || noOfNeighbours == 3 {
 					newWorld[y][x] = 255
 				} else if noOfNeighbours > 3 {
 					newWorld[y][x] = 0
+					flipCell = append(flipCell, util.Cell{X: x, Y: startY + y})
 				}
 			} else if world[startY+y][x] == 0 && noOfNeighbours == 3 {
 				newWorld[y][x] = 255
+				flipCell = append(flipCell, util.Cell{X: x, Y: startY + y})
 			}
 		}
 	}
 
-	return newWorld
+	return newWorld, flipCell
 }
 
 func calculateAliveCells(p Params, world [][]byte) (int, []util.Cell) {
