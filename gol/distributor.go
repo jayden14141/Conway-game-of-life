@@ -1,6 +1,7 @@
 package gol
 
 import (
+	"fmt"
 	"strconv"
 	"time"
 
@@ -42,8 +43,49 @@ func handleOutput(p Params, c distributorChannels, world [][]uint8, t int) {
 	}
 }
 
+func handleKeyPress(keyPresses <-chan rune, p Params, c distributorChannels, world [][]uint8, t int, action chan bool) {
+	for {
+		input := <-keyPresses
+		paused := false
+		if paused {
+			switch input {
+			case 'p':
+				newState := StateChange{
+					CompletedTurns: t,
+					NewState:       State(1),
+				}
+				fmt.Println("Continuing")
+				c.events <- newState
+				paused = false
+			}
+		} else {
+			switch input {
+			case 's':
+				handleOutput(p, c, world, t)
+			case 'q':
+				newState := StateChange{
+					CompletedTurns: t,
+					NewState:       State(2),
+				}
+				fmt.Println(newState.String())
+				c.events <- newState
+			case 'p':
+				newState := StateChange{
+					CompletedTurns: t,
+					NewState:       State(0),
+				}
+				fmt.Println(newState.String())
+				c.events <- newState
+				paused = true
+				pause <- true
+			case 'k':
+			}
+		}
+	}
+}
+
 // distributor divides the work between workers and interacts with other goroutines.
-func distributor(p Params, c distributorChannels) {
+func distributor(p Params, c distributorChannels, keyPresses <-chan rune) {
 	// TODO: Create a 2D slice to store the world.
 	world := make([][]uint8, p.ImageHeight)
 	cellFlip := make([]util.Cell, p.ImageHeight*p.ImageWidth)
@@ -88,51 +130,76 @@ func distributor(p Params, c distributorChannels) {
 			}
 		}
 	}()
+
+	action := make(chan int)
+	turnChan := make(chan int)
+	worldChan := make(chan [][]uint8)
+	go handleKeyPress(keyPresses, p, c, world, turnChan, action)
+
 	for t := 0; t < p.Turns; t++ {
-		turn = t
-		if p.Threads == 1 {
-			world, cellFlip = calculateNextState(p.ImageHeight, p.ImageWidth, 0, p.ImageHeight, world)
-		} else {
-			var worldFragment [][]uint8
-			channels := make([]chan [][]uint8, p.Threads)
-			flipChan := make([]chan []util.Cell, p.Threads)
-			unit := int(p.ImageHeight / p.Threads)
-			for i := 0; i < p.Threads; i++ {
-				channels[i] = make(chan [][]uint8)
-				flipChan[i] = make(chan []util.Cell)
-				if i == p.Threads-1 {
-					// Handling with problems if threads division goes with remainders
-					go worker(p, i*unit, p.ImageHeight, 0, p.ImageWidth, world, channels[i], flipChan[i])
-				} else {
-					go worker(p, i*unit, (i+1)*unit, 0, p.ImageWidth, world, channels[i], flipChan[i])
+		for {
+			if t < p.Turns {
+				select {
+				case val := <-action:
+					//Quitting
+					if val == 0 {
+						turnChan <- turn
+						world <- world
+					} else if val == 1 {
+
+					}
+				default:
+					{
+						turn = t
+						if p.Threads == 1 {
+							world, cellFlip = calculateNextState(p.ImageHeight, p.ImageWidth, 0, p.ImageHeight, world)
+						} else {
+							var worldFragment [][]uint8
+							channels := make([]chan [][]uint8, p.Threads)
+							flipChan := make([]chan []util.Cell, p.Threads)
+							unit := int(p.ImageHeight / p.Threads)
+							for i := 0; i < p.Threads; i++ {
+								channels[i] = make(chan [][]uint8)
+								flipChan[i] = make(chan []util.Cell)
+								if i == p.Threads-1 {
+									// Handling with problems if threads division goes with remainders
+									go worker(p, i*unit, p.ImageHeight, 0, p.ImageWidth, world, channels[i], flipChan[i])
+								} else {
+									go worker(p, i*unit, (i+1)*unit, 0, p.ImageWidth, world, channels[i], flipChan[i])
+								}
+							}
+							for i := 0; i < p.Threads; i++ {
+								worldPart := <-channels[i]
+								worldFragment = append(worldFragment, worldPart...)
+								cellPart := <-flipChan[i]
+								cellFlip = append(cellFlip, cellPart...)
+							}
+							for j := range worldFragment {
+								copy(world[j], worldFragment[j])
+							}
+						}
+
+						for _, cell := range cellFlip {
+							c.events <- CellFlipped{
+								CompletedTurns: turn,
+								Cell:           cell,
+							}
+						}
+
+						c.events <- TurnComplete{
+							CompletedTurns: turn,
+						}
+					}
 				}
+			} else {
+				return
 			}
-			for i := 0; i < p.Threads; i++ {
-				worldPart := <-channels[i]
-				worldFragment = append(worldFragment, worldPart...)
-				cellPart := <-flipChan[i]
-				cellFlip = append(cellFlip, cellPart...)
-			}
-			for j := range worldFragment {
-				copy(world[j], worldFragment[j])
-			}
-		}
-
-		// for _, cell := range cellFlip {
-		// 	c.events <- CellFlipped{
-		// 		CompletedTurns: turn,
-		// 		Cell:           cell,
-		// 	}
-		// }
-
-		c.events <- TurnComplete{
-			CompletedTurns: turn,
 		}
 	}
 	ticker.Stop()
 	done <- true
 
-	// handleOutput(p, c, world, p.Turns)
+	handleOutput(p, c, world, p.Turns)
 
 	// Send the output and invoke writePgmImage() in io.go
 	// Sends the world slice to io.go
