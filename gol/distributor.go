@@ -17,6 +17,10 @@ type distributorChannels struct {
 	ioInput    <-chan uint8
 }
 
+const Save int = 0
+const Quit int = 1
+const Pause int = 2
+
 // startY <= target < endY,
 // startX <= target < endX (Same for every worker since we slice horizontally)
 // Modify params in calculateNextState
@@ -32,7 +36,7 @@ func worker(p Params, startY, endY, startX, endX int, world [][]uint8, out chan<
 	flip <- flipFragment
 }
 
-func handleOutput(p Params, c distributorChannels, world [][]uint8, t int, outputDone chan bool) {
+func handleOutput(p Params, c distributorChannels, world [][]uint8, t int) {
 	c.ioCommand <- 0
 	outFilename := strconv.Itoa(p.ImageHeight) + "x" + strconv.Itoa(p.ImageWidth) + "x" + strconv.Itoa(t)
 	c.ioFilename <- outFilename
@@ -41,10 +45,9 @@ func handleOutput(p Params, c distributorChannels, world [][]uint8, t int, outpu
 			c.ioOutput <- world[y][x]
 		}
 	}
-	outputDone <- true
 }
 
-func handleKeyPress(p Params, c distributorChannels, keyPresses <-chan rune, world [][]uint8, t int) {
+func handleKeyPress(p Params, c distributorChannels, keyPresses <-chan rune, world <-chan [][]uint8, t <-chan int, action chan int) {
 	for {
 		input := <-keyPresses
 		paused := false
@@ -52,8 +55,8 @@ func handleKeyPress(p Params, c distributorChannels, keyPresses <-chan rune, wor
 			switch input {
 			case 'p':
 				newState := StateChange{
-					CompletedTurns: t,
-					NewState:       State(1),
+					CompletedTurns: <-t,
+					NewState:       State(Executing),
 				}
 				fmt.Println("Continuing")
 				c.events <- newState
@@ -62,22 +65,24 @@ func handleKeyPress(p Params, c distributorChannels, keyPresses <-chan rune, wor
 		} else {
 			switch input {
 			case 's':
-				outputDone := make(chan bool)
-				go handleOutput(p, c, world, t, outputDone)
-				<-outputDone
-				c.events <- StateChange{CompletedTurns: t, NewState: Executing}
+				action <- Save
+				w := <-world
+				turn := <-t
+				go handleOutput(p, c, w, turn)
 			case 'q':
-				outputDone := make(chan bool)
-				go handleOutput(p, c, world, t, outputDone)
-				<-outputDone
+				// outputDone := make(chan bool)
+				go handleOutput(p, c, <-world, <-t)
+				// <-outputDone
 
-				c.events <- StateChange{CompletedTurns: t, NewState: Quitting}
+				newState := StateChange{CompletedTurns: <-t, NewState: Quitting}
+				fmt.Println(newState.String())
+				c.events <- newState
 
-				c.events <- FinalTurnComplete{CompletedTurns: t}
+				c.events <- FinalTurnComplete{CompletedTurns: <-t}
 			case 'p':
 				newState := StateChange{
-					CompletedTurns: t,
-					NewState:       State(0),
+					CompletedTurns: <-t,
+					NewState:       State(Paused),
 				}
 				fmt.Println(newState.String())
 				c.events <- newState
@@ -151,12 +156,26 @@ func distributor(p Params, c distributorChannels, keyPresses <-chan rune) {
 		}
 	}()
 
-	//go handleKeyPress(p, c, keyPresses, world, turn)
-	//turnChan := make(chan int)
-
+	turnChan := make(chan int)
+	worldChan := make(chan [][]uint8)
+	action := make(chan int)
+	go handleKeyPress(p, c, keyPresses, worldChan, turnChan, action)
+	go func(action chan int) {
+		for {
+			select {
+			case command := <-action:
+				switch command {
+				case Pause:
+				case Quit:
+				case Save:
+					worldChan <- world
+					turnChan <- turn
+				}
+			}
+		}
+	}(action)
 	for t := 0; t < p.Turns; t++ {
 		turn = t
-		go handleKeyPress(p, c, keyPresses, world, turn)
 		if p.Threads == 1 {
 			world, cellFlip = calculateNextState(p.ImageHeight, p.ImageWidth, 0, p.ImageHeight, world)
 		} else {
@@ -199,9 +218,7 @@ func distributor(p Params, c distributorChannels, keyPresses <-chan rune) {
 	ticker.Stop()
 	done <- true
 
-	outputDone := make(chan bool)
-	handleOutput(p, c, world, p.Turns, outputDone)
-	<-outputDone
+	handleOutput(p, c, world, p.Turns)
 
 	// Send the output and invoke writePgmImage() in io.go
 	// Sends the world slice to io.go
