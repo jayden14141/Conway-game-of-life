@@ -48,9 +48,9 @@ func handleOutput(p Params, c distributorChannels, world [][]uint8, t int) {
 }
 
 func handleKeyPress(p Params, c distributorChannels, keyPresses <-chan rune, world <-chan [][]uint8, t <-chan int, action chan int) {
+	paused := false
 	for {
 		input := <-keyPresses
-		paused := false
 		if paused {
 			switch input {
 			case 'p':
@@ -71,17 +71,20 @@ func handleKeyPress(p Params, c distributorChannels, keyPresses <-chan rune, wor
 				go handleOutput(p, c, w, turn)
 			case 'q':
 				// outputDone := make(chan bool)
-				go handleOutput(p, c, <-world, <-t)
+				// w := <-world
+				turn := <-t
+				// go handleOutput(p, c, w, turn)
 				// <-outputDone
 
-				newState := StateChange{CompletedTurns: <-t, NewState: Quitting}
+				newState := StateChange{CompletedTurns: turn, NewState: State(Quitting)}
 				fmt.Println(newState.String())
 				c.events <- newState
 
-				c.events <- FinalTurnComplete{CompletedTurns: <-t}
+				// c.events <- FinalTurnComplete{CompletedTurns: <-t}
 			case 'p':
+				turn := <-t
 				newState := StateChange{
-					CompletedTurns: <-t,
+					CompletedTurns: turn,
 					NewState:       State(Paused),
 				}
 				fmt.Println(newState.String())
@@ -159,60 +162,83 @@ func distributor(p Params, c distributorChannels, keyPresses <-chan rune) {
 	turnChan := make(chan int)
 	worldChan := make(chan [][]uint8)
 	action := make(chan int)
+	pause := false
+	quit := false
 	go handleKeyPress(p, c, keyPresses, worldChan, turnChan, action)
 	go func() {
 		for {
-			select {
-			case command := <-action:
-				switch command {
-				case Pause:
-				case Quit:
-				case Save:
-					worldChan <- world
-					turnChan <- turn
+			if pause {
+				command := <-action
+				if command == Pause {
+					pause = false
+				}
+			} else {
+				select {
+				case command := <-action:
+					switch command {
+					case Pause:
+						pause = true
+						turnChan <- turn
+					case Quit:
+						quit = true
+						worldChan <- world
+						turnChan <- turn
+						return
+					case Save:
+						worldChan <- world
+						turnChan <- turn
+					}
 				}
 			}
 		}
 	}()
 	for t := 0; t < p.Turns; t++ {
-		turn = t
-		if p.Threads == 1 {
-			world, cellFlip = calculateNextState(p.ImageHeight, p.ImageWidth, 0, p.ImageHeight, world)
-		} else {
-			var worldFragment [][]uint8
-			channels := make([]chan [][]uint8, p.Threads)
-			flipChan := make([]chan []util.Cell, p.Threads)
-			unit := int(p.ImageHeight / p.Threads)
-			for i := 0; i < p.Threads; i++ {
-				channels[i] = make(chan [][]uint8)
-				flipChan[i] = make(chan []util.Cell)
-				if i == p.Threads-1 {
-					// Handling with problems if threads division goes with remainders
-					go worker(p, i*unit, p.ImageHeight, 0, p.ImageWidth, world, channels[i], flipChan[i])
-				} else {
-					go worker(p, i*unit, (i+1)*unit, 0, p.ImageWidth, world, channels[i], flipChan[i])
+		if !pause && !quit {
+			turn = t
+			if p.Threads == 1 {
+				world, cellFlip = calculateNextState(p.ImageHeight, p.ImageWidth, 0, p.ImageHeight, world)
+			} else {
+				var worldFragment [][]uint8
+				channels := make([]chan [][]uint8, p.Threads)
+				flipChan := make([]chan []util.Cell, p.Threads)
+				unit := int(p.ImageHeight / p.Threads)
+				for i := 0; i < p.Threads; i++ {
+					channels[i] = make(chan [][]uint8)
+					flipChan[i] = make(chan []util.Cell)
+					if i == p.Threads-1 {
+						// Handling with problems if threads division goes with remainders
+						go worker(p, i*unit, p.ImageHeight, 0, p.ImageWidth, world, channels[i], flipChan[i])
+					} else {
+						go worker(p, i*unit, (i+1)*unit, 0, p.ImageWidth, world, channels[i], flipChan[i])
+					}
+				}
+				for i := 0; i < p.Threads; i++ {
+					worldPart := <-channels[i]
+					worldFragment = append(worldFragment, worldPart...)
+					cellPart := <-flipChan[i]
+					cellFlip = append(cellFlip, cellPart...)
+				}
+				for j := range worldFragment {
+					copy(world[j], worldFragment[j])
 				}
 			}
-			for i := 0; i < p.Threads; i++ {
-				worldPart := <-channels[i]
-				worldFragment = append(worldFragment, worldPart...)
-				cellPart := <-flipChan[i]
-				cellFlip = append(cellFlip, cellPart...)
-			}
-			for j := range worldFragment {
-				copy(world[j], worldFragment[j])
-			}
-		}
 
-		for _, cell := range cellFlip {
-			c.events <- CellFlipped{
+			for _, cell := range cellFlip {
+				c.events <- CellFlipped{
+					CompletedTurns: turn,
+					Cell:           cell,
+				}
+			}
+
+			c.events <- TurnComplete{
 				CompletedTurns: turn,
-				Cell:           cell,
 			}
-		}
-
-		c.events <- TurnComplete{
-			CompletedTurns: turn,
+		} else {
+			if quit {
+				break
+			} else {
+				continue
+			}
 		}
 	}
 	ticker.Stop()
