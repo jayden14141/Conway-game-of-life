@@ -20,6 +20,7 @@ type distributorChannels struct {
 const Save int = 0
 const Quit int = 1
 const Pause int = 2
+const unPause int = 3
 
 // startY <= target < endY,
 // startX <= target < endX (Same for every worker since we slice horizontally)
@@ -51,49 +52,58 @@ func handleKeyPress(p Params, c distributorChannels, keyPresses <-chan rune, wor
 	paused := false
 	for {
 		input := <-keyPresses
-		if paused {
-			switch input {
-			case 'p':
-				newState := StateChange{
-					CompletedTurns: <-t,
-					NewState:       State(Executing),
-				}
-				fmt.Println("Continuing")
-				c.events <- newState
-				paused = false
-			}
-		} else {
-			switch input {
-			case 's':
-				action <- Save
-				w := <-world
-				turn := <-t
-				go handleOutput(p, c, w, turn)
-			case 'q':
-				// outputDone := make(chan bool)
-				// w := <-world
-				turn := <-t
-				// go handleOutput(p, c, w, turn)
-				// <-outputDone
-
-				newState := StateChange{CompletedTurns: turn, NewState: State(Quitting)}
-				fmt.Println(newState.String())
-				c.events <- newState
-
-				// c.events <- FinalTurnComplete{CompletedTurns: <-t}
-			case 'p':
-				turn := <-t
-				newState := StateChange{
-					CompletedTurns: turn,
-					NewState:       State(Paused),
-				}
-				fmt.Println(newState.String())
-				c.events <- newState
-				paused = true
-				//pause <- true
-			case 'k':
-			}
+		/*if paused {
+		switch input {
+		case 'p':
+			newState := StateChange{CompletedTurns: <-t, NewState: State(Executing)}
+			fmt.Println("Continuing")
+			c.events <- newState
+			paused = false
 		}
+		} else {*/
+		switch input {
+		case 's':
+			action <- Save
+			w := <-world
+			turn := <-t
+			go handleOutput(p, c, w, turn)
+
+		case 'q':
+			action <- Quit
+			w := <-world
+			turn := <-t
+			go handleOutput(p, c, w, turn)
+
+			//newState := StateChange{CompletedTurns: turn, NewState: State(Quitting)}
+			//fmt.Println(newState.String())
+
+			//c.events <- newState
+			c.events <- FinalTurnComplete{CompletedTurns: <-t}
+		case 'p':
+			if paused {
+				action <- unPause
+				turn := <-t
+				paused = false
+				newState := StateChange{CompletedTurns: turn, NewState: State(Executing)}
+				fmt.Println(newState.String())
+				c.events <- newState
+			} else {
+				action <- Pause
+				turn := <-t
+				paused = true
+				newState := StateChange{CompletedTurns: turn, NewState: State(Paused)}
+				fmt.Println(newState.String())
+				c.events <- newState
+			}
+			//action <- Pause
+			//w := <-world
+			//turn := <-t
+
+			//paused = true
+			//pause <- true
+		case 'k':
+		}
+		//}
 	}
 
 	/*for {
@@ -145,6 +155,7 @@ func distributor(p Params, c distributorChannels, keyPresses <-chan rune) {
 	done := make(chan bool)
 	pause := false
 	quit := false
+	waitToUnpause := make(chan bool)
 	go func() {
 		for {
 			if !quit {
@@ -171,32 +182,39 @@ func distributor(p Params, c distributorChannels, keyPresses <-chan rune) {
 	go handleKeyPress(p, c, keyPresses, worldChan, turnChan, action)
 	go func() {
 		for {
-			if pause {
-				command := <-action
-				if command == Pause {
+			/*if pause {
+			command := <-action
+			if command == Pause {
+				pause = false
+			}*/
+			//} else {
+			select {
+			case command := <-action:
+				switch command {
+				case Pause:
+					pause = true
+					turnChan <- turn
+				case unPause:
 					pause = false
-				}
-			} else {
-				select {
-				case command := <-action:
-					switch command {
-					case Pause:
-						pause = true
-						turnChan <- turn
-					case Quit:
-						worldChan <- world
-						turnChan <- turn
-						quit = true
-						return
-					case Save:
-						worldChan <- world
-						turnChan <- turn
-					}
+					turnChan <- turn
+					waitToUnpause <- true
+				case Quit:
+					worldChan <- world
+					turnChan <- turn
+					quit = true
+					//return
+				case Save:
+					worldChan <- world
+					turnChan <- turn
 				}
 			}
+			//}
 		}
 	}()
 	for t := 0; t < p.Turns; t++ {
+		if pause {
+			<-waitToUnpause
+		}
 		if !pause && !quit {
 			turn = t
 			if p.Threads == 1 {
