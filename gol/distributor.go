@@ -160,7 +160,7 @@ func distributor(p Params, c distributorChannels, keyPresses <-chan rune) {
 	worldChan := make(chan [][]uint8)
 	action := make(chan int)
 	go handleKeyPress(p, c, keyPresses, worldChan, turnChan, action)
-	go func(action chan int) {
+	go func() {
 		for {
 			select {
 			case command := <-action:
@@ -173,7 +173,7 @@ func distributor(p Params, c distributorChannels, keyPresses <-chan rune) {
 				}
 			}
 		}
-	}(action)
+	}()
 	for t := 0; t < p.Turns; t++ {
 		turn = t
 		if p.Threads == 1 {
