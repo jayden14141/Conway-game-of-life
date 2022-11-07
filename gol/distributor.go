@@ -143,18 +143,24 @@ func distributor(p Params, c distributorChannels, keyPresses <-chan rune) {
 	turn := 0
 	ticker := time.NewTicker(2 * time.Second)
 	done := make(chan bool)
+	pause := false
+	quit := false
 	go func() {
 		for {
-			select {
-			case <-done:
-				return
-			case <-ticker.C:
-				aliveCount, _ := calculateAliveCells(p, world)
-				aliveReport := AliveCellsCount{
-					CompletedTurns: turn,
-					CellsCount:     aliveCount,
+			if !quit {
+				select {
+				case <-done:
+					return
+				case <-ticker.C:
+					aliveCount, _ := calculateAliveCells(p, world)
+					aliveReport := AliveCellsCount{
+						CompletedTurns: turn,
+						CellsCount:     aliveCount,
+					}
+					c.events <- aliveReport
 				}
-				c.events <- aliveReport
+			} else {
+				return
 			}
 		}
 	}()
@@ -162,8 +168,6 @@ func distributor(p Params, c distributorChannels, keyPresses <-chan rune) {
 	turnChan := make(chan int)
 	worldChan := make(chan [][]uint8)
 	action := make(chan int)
-	pause := false
-	quit := false
 	go handleKeyPress(p, c, keyPresses, worldChan, turnChan, action)
 	go func() {
 		for {
@@ -180,9 +184,9 @@ func distributor(p Params, c distributorChannels, keyPresses <-chan rune) {
 						pause = true
 						turnChan <- turn
 					case Quit:
-						quit = true
 						worldChan <- world
 						turnChan <- turn
+						quit = true
 						return
 					case Save:
 						worldChan <- world
