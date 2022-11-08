@@ -74,11 +74,11 @@ func handleKeyPress(p Params, c distributorChannels, keyPresses <-chan rune, wor
 			turn := <-t
 			go handleOutput(p, c, w, turn)
 
-			//newState := StateChange{CompletedTurns: turn, NewState: State(Quitting)}
-			//fmt.Println(newState.String())
+			newState := StateChange{CompletedTurns: turn, NewState: State(Quitting)}
+			fmt.Println(newState.String())
 
-			//c.events <- newState
-			c.events <- FinalTurnComplete{CompletedTurns: <-t}
+			c.events <- newState
+			c.events <- FinalTurnComplete{CompletedTurns: turn}
 		case 'p':
 			if paused {
 				action <- unPause
@@ -126,9 +126,11 @@ func handleKeyPress(p Params, c distributorChannels, keyPresses <-chan rune, wor
 func distributor(p Params, c distributorChannels, keyPresses <-chan rune) {
 	// TODO: Create a 2D slice to store the world.
 	world := make([][]uint8, p.ImageHeight)
+	prevWorld := make([][]uint8, p.ImageHeight)
 	cellFlip := make([]util.Cell, p.ImageHeight*p.ImageWidth)
 	for i := range world {
 		world[i] = make([]uint8, p.ImageWidth)
+		prevWorld[i] = make([]uint8, p.ImageWidth)
 	}
 
 	filename := strconv.Itoa(p.ImageHeight) + "x" + strconv.Itoa(p.ImageWidth)
@@ -163,7 +165,7 @@ func distributor(p Params, c distributorChannels, keyPresses <-chan rune) {
 				case <-done:
 					return
 				case <-ticker.C:
-					aliveCount, _ := calculateAliveCells(p, world)
+					aliveCount, _ := calculateAliveCells(p, prevWorld)
 					aliveReport := AliveCellsCount{
 						CompletedTurns: turn,
 						CellsCount:     aliveCount,
@@ -217,6 +219,9 @@ func distributor(p Params, c distributorChannels, keyPresses <-chan rune) {
 		}
 		if !pause && !quit {
 			turn = t
+			for j := range world {
+				copy(prevWorld[j], world[j])
+			}
 			if p.Threads == 1 {
 				world, cellFlip = calculateNextState(p.ImageHeight, p.ImageWidth, 0, p.ImageHeight, world)
 			} else {
