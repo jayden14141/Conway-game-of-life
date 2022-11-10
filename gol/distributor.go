@@ -127,7 +127,6 @@ func distributor(p Params, c distributorChannels, keyPresses <-chan rune) {
 	// TODO: Create a 2D slice to store the world.
 	world := make([][]uint8, p.ImageHeight)
 	prevWorld := make([][]uint8, p.ImageHeight)
-	cellFlip := make([]util.Cell, p.ImageHeight*p.ImageWidth)
 	for i := range world {
 		world[i] = make([]uint8, p.ImageWidth)
 		prevWorld[i] = make([]uint8, p.ImageWidth)
@@ -188,7 +187,7 @@ func distributor(p Params, c distributorChannels, keyPresses <-chan rune) {
 			command := <-action
 			if command == Pause {
 				pause = false
-			}*/
+				}*/
 			//} else {
 			select {
 			case command := <-action:
@@ -214,6 +213,7 @@ func distributor(p Params, c distributorChannels, keyPresses <-chan rune) {
 		}
 	}()
 	for t := 0; t < p.Turns; t++ {
+		cellFlip := make([]util.Cell, p.ImageHeight*p.ImageWidth)
 		if pause {
 			<-waitToUnpause
 		}
@@ -248,9 +248,11 @@ func distributor(p Params, c distributorChannels, keyPresses <-chan rune) {
 				for j := range worldFragment {
 					copy(world[j], worldFragment[j])
 				}
+
 			}
 
 			for _, cell := range cellFlip {
+				// defer wg.Done()
 				c.events <- CellFlipped{
 					CompletedTurns: turn,
 					Cell:           cell,
@@ -260,6 +262,7 @@ func distributor(p Params, c distributorChannels, keyPresses <-chan rune) {
 			c.events <- TurnComplete{
 				CompletedTurns: turn,
 			}
+
 		} else {
 			if quit {
 				break
