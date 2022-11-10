@@ -30,7 +30,6 @@ func worker(p Params, startY, endY, startX, endX int, world [][]uint8, out chan<
 	newPart := make([][]uint8, endY-startY)
 	for i := range newPart {
 		newPart[i] = make([]uint8, endX)
-		// copy(newPart[i], world[startY+i])
 	}
 	newPart, flipFragment = calculateNextState(p.ImageHeight, p.ImageWidth, startY, endY, world)
 	out <- newPart
@@ -52,15 +51,7 @@ func handleKeyPress(p Params, c distributorChannels, keyPresses <-chan rune, wor
 	paused := false
 	for {
 		input := <-keyPresses
-		/*if paused {
-		switch input {
-		case 'p':
-			newState := StateChange{CompletedTurns: <-t, NewState: State(Executing)}
-			fmt.Println("Continuing")
-			c.events <- newState
-			paused = false
-		}
-		} else {*/
+
 		switch input {
 		case 's':
 			action <- Save
@@ -95,31 +86,12 @@ func handleKeyPress(p Params, c distributorChannels, keyPresses <-chan rune, wor
 				fmt.Println(newState.String())
 				c.events <- newState
 			}
-			//action <- Pause
-			//w := <-world
-			//turn := <-t
 
-			//paused = true
-			//pause <- true
 		case 'k':
 		}
-		//}
+
 	}
 
-	/*for {
-		key := <-keyPresses
-		switch key {
-		case 's':
-			handleOutput(p, c, world, t)
-			c.events <- StateChange{CompletedTurns: t, NewState: Executing}
-		case 'q':
-			handleOutput(p, c, world, t)
-			c.events <- StateChange{CompletedTurns: t, NewState: Quitting}
-			c.events <- FinalTurnComplete{CompletedTurns: t}
-		case 'p':
-			//c.events <-
-		}
-	}*/
 }
 
 // distributor divides the work between workers and interacts with other goroutines.
@@ -183,12 +155,7 @@ func distributor(p Params, c distributorChannels, keyPresses <-chan rune) {
 	go handleKeyPress(p, c, keyPresses, worldChan, turnChan, action)
 	go func() {
 		for {
-			/*if pause {
-			command := <-action
-			if command == Pause {
-				pause = false
-				}*/
-			//} else {
+
 			select {
 			case command := <-action:
 				switch command {
