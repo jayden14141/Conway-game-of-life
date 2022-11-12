@@ -45,6 +45,10 @@ func handleOutput(p Params, c distributorChannels, world [][]uint8, t int) {
 			c.ioOutput <- world[y][x]
 		}
 	}
+	c.events <- ImageOutputComplete{
+		CompletedTurns: t,
+		Filename:       outFilename,
+	}
 }
 
 func handleKeyPress(p Params, c distributorChannels, keyPresses <-chan rune, world <-chan [][]uint8, t <-chan int, action chan int) {
