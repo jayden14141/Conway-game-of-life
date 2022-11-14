@@ -3,37 +3,15 @@ package main
 import (
 	"fmt"
 	"os"
-	"runtime/trace"
 	"testing"
 
 	"uk.ac.bris.cs/gameoflife/gol"
-	"uk.ac.bris.cs/gameoflife/util"
 )
 
-// TestTrace is a special test to be used to generate traces - not a real test
-// func TestTracing(t *testing.T) {
-// 	for threads := 1; threads <= 16; threads++ {
-// 		traceParams := gol.Params{
-// 			Turns:       100,
-// 			Threads:     threads,
-// 			ImageWidth:  512,
-// 			ImageHeight: 512,
-// 		}
-// 		filename := "trace.out-" + strconv.Itoa(threads)
-// 		f, _ := os.Create("/" + filename)
-// 		events := make(chan gol.Event)
-// 		err := trace.Start(f)
-// 		util.Check(err)
-// 		go gol.Run(traceParams, events, nil)
-// 		for range events {
-// 		}
-// 		trace.Stop()
-// 		err = f.Close()
-// 		util.Check(err)
-// 	}
-// }
+// go test -run ^$ -bench . -benchtime 1x -count 20 | tee result/results.out
+// go run golang.org/x/perf/cmd/benchstat -csv result/results.out | tee result/results.csv
 
-func BenchmarkFilter(b *testing.B) {
+func BenchmarkGol(b *testing.B) {
 	// Disable all program output apart from benchmark results
 	os.Stdout = nil
 
@@ -45,16 +23,8 @@ func BenchmarkFilter(b *testing.B) {
 				ImageWidth:  512,
 				ImageHeight: 512,
 			}
-			f, _ := os.Create("results.out")
 			events := make(chan gol.Event)
-			err := trace.Start(f)
-			util.Check(err)
 			go gol.Run(traceParams, events, nil)
-			for range events {
-			}
-			trace.Stop()
-			err = f.Close()
-			util.Check(err)
 		})
 	}
 }
