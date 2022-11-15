@@ -18,13 +18,23 @@ func BenchmarkGol(b *testing.B) {
 	for threads := 1; threads <= 16; threads++ {
 		b.Run(fmt.Sprintf("%d_workers", threads), func(b *testing.B) {
 			traceParams := gol.Params{
-				Turns:       10,
+				Turns:       100,
 				Threads:     threads,
 				ImageWidth:  512,
 				ImageHeight: 512,
 			}
 			events := make(chan gol.Event)
-			go gol.Run(traceParams, events, nil)
+			for i := 0; i < b.N; i++ {
+				go gol.Run(traceParams, events, nil)
+				complete := false
+				for !complete {
+					event := <-events
+					switch event.(type) {
+					case gol.FinalTurnComplete:
+						complete = true
+					}
+				}
+			}
 		})
 	}
 }

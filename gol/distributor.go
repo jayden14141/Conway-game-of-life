@@ -25,15 +25,20 @@ const unPause int = 3
 // startY <= target < endY,
 // startX <= target < endX (Same for every worker since we slice horizontally)
 // Modify params in calculateNextState
-func worker(p Params, startY, endY, startX, endX int, world [][]uint8, out chan<- [][]uint8, flip chan<- []util.Cell) {
-	flipFragment := make([]util.Cell, (endY-startY)*endX)
+func worker(p Params, startY, endY, startX, endX int, world [][]uint8, out chan<- [][]uint8, c distributorChannels, turn int) {
+	flipFragment := make([]util.Cell, (endY-startY)*endX/2)
 	newPart := make([][]uint8, endY-startY)
 	for i := range newPart {
 		newPart[i] = make([]uint8, endX)
 	}
 	newPart, flipFragment = calculateNextState(p.ImageHeight, p.ImageWidth, startY, endY, world)
 	out <- newPart
-	flip <- flipFragment
+	for _, cell := range flipFragment {
+		c.events <- CellFlipped{
+			CompletedTurns: turn,
+			Cell:           cell,
+		}
+	}
 }
 
 func handleOutput(p Params, c distributorChannels, world [][]uint8, t int) {
@@ -195,39 +200,37 @@ func distributor(p Params, c distributorChannels, keyPresses <-chan rune) {
 			}
 			if p.Threads == 1 {
 				world, cellFlip = calculateNextState(p.ImageHeight, p.ImageWidth, 0, p.ImageHeight, world)
+				for _, cell := range cellFlip {
+					c.events <- CellFlipped{
+						CompletedTurns: turn,
+						Cell:           cell,
+					}
+				}
 			} else {
 				var worldFragment [][]uint8
 				channels := make([]chan [][]uint8, p.Threads)
-				flipChan := make([]chan []util.Cell, p.Threads)
+				// flipChan := make([]chan []util.Cell, p.Threads)
 				unit := int(p.ImageHeight / p.Threads)
 				for i := 0; i < p.Threads; i++ {
 					channels[i] = make(chan [][]uint8)
-					flipChan[i] = make(chan []util.Cell)
+					// flipChan[i] = make(chan []util.Cell)
 					if i == p.Threads-1 {
 						// Handling with problems if threads division goes with remainders
-						go worker(p, i*unit, p.ImageHeight, 0, p.ImageWidth, world, channels[i], flipChan[i])
+						go worker(p, i*unit, p.ImageHeight, 0, p.ImageWidth, world, channels[i], c, turn)
 					} else {
-						go worker(p, i*unit, (i+1)*unit, 0, p.ImageWidth, world, channels[i], flipChan[i])
+						go worker(p, i*unit, (i+1)*unit, 0, p.ImageWidth, world, channels[i], c, turn)
 					}
 				}
 				for i := 0; i < p.Threads; i++ {
 					worldPart := <-channels[i]
 					worldFragment = append(worldFragment, worldPart...)
-					cellPart := <-flipChan[i]
-					cellFlip = append(cellFlip, cellPart...)
+					// cellPart := <-flipChan[i]
+					// cellFlip = append(cellFlip, cellPart...)
 				}
 				for j := range worldFragment {
 					copy(world[j], worldFragment[j])
 				}
 
-			}
-
-			for _, cell := range cellFlip {
-				// defer wg.Done()
-				c.events <- CellFlipped{
-					CompletedTurns: turn,
-					Cell:           cell,
-				}
 			}
 
 			c.events <- TurnComplete{
