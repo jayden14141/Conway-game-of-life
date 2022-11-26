@@ -56,6 +56,26 @@ func handleOutput(p Params, c distributorChannels, world [][]uint8, t int) {
 	}
 }
 
+// Gets input from IO and initialises cellflip
+func handleInput(p Params, c distributorChannels, world [][]uint8) [][]uint8 {
+	filename := strconv.Itoa(p.ImageHeight) + "x" + strconv.Itoa(p.ImageWidth)
+	c.ioCommand <- 1
+	c.ioFilename <- filename
+	for y := 0; y < p.ImageHeight; y++ {
+		for x := 0; x < p.ImageWidth; x++ {
+			num := <-c.ioInput
+			world[y][x] = num
+			if num == 255 {
+				c.events <- CellFlipped{
+					CompletedTurns: 0,
+					Cell:           util.Cell{X: x, Y: y},
+				}
+			}
+		}
+	}
+	return world
+}
+
 func handleKeyPress(p Params, c distributorChannels, keyPresses <-chan rune, world <-chan [][]uint8, t <-chan int, action chan int) {
 	paused := false
 	for {
@@ -105,7 +125,6 @@ func handleKeyPress(p Params, c distributorChannels, keyPresses <-chan rune, wor
 
 // distributor divides the work between workers and interacts with other goroutines.
 func distributor(p Params, c distributorChannels, keyPresses <-chan rune) {
-	// TODO: Create a 2D slice to store the world.
 	world := make([][]uint8, p.ImageHeight)
 	prevWorld := make([][]uint8, p.ImageHeight)
 	for i := range world {
@@ -113,23 +132,7 @@ func distributor(p Params, c distributorChannels, keyPresses <-chan rune) {
 		prevWorld[i] = make([]uint8, p.ImageWidth)
 	}
 
-	filename := strconv.Itoa(p.ImageHeight) + "x" + strconv.Itoa(p.ImageWidth)
-
-	// Commands IO to read the initial file, giving the filename via the channel.
-	c.ioCommand <- 1
-	c.ioFilename <- filename
-	for y := 0; y < p.ImageHeight; y++ {
-		for x := 0; x < p.ImageWidth; x++ {
-			num := <-c.ioInput
-			world[y][x] = num
-			if num == 255 {
-				c.events <- CellFlipped{
-					CompletedTurns: 0,
-					Cell:           util.Cell{X: x, Y: y},
-				}
-			}
-		}
-	}
+	world = handleInput(p, c, world)
 
 	// TODO: Execute all turns of the Game of Life.
 	turn := 0

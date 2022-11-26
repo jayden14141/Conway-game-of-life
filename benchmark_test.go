@@ -8,7 +8,7 @@ import (
 	"uk.ac.bris.cs/gameoflife/gol"
 )
 
-// go test -run ^$ -bench . -benchtime 1x -count 20 | tee result/results.out
+// go test -run ^$ -bench . -benchtime 1x -count 10 | tee result/results.out
 // go run golang.org/x/perf/cmd/benchstat -csv result/results.out | tee result/results.csv
 
 func BenchmarkGol(b *testing.B) {
