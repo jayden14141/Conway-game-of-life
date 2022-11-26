@@ -8,8 +8,8 @@ import (
 	"uk.ac.bris.cs/gameoflife/gol"
 )
 
-// go test -run ^$ -bench . -benchtime 1x -count 10 | tee result/results.out
-// go run golang.org/x/perf/cmd/benchstat -csv result/results.out | tee result/results.csv
+// go test -run ^$ -bench . -benchtime 1x -count 10 | tee result/resultsNew.out
+// go run golang.org/x/perf/cmd/benchstat -csv result/resultsNew.out | tee result/resultsNew.csv
 
 func BenchmarkGol(b *testing.B) {
 	// Disable all program output apart from benchmark results
