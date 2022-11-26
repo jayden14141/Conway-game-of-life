@@ -38,6 +38,10 @@ var write bool = false
 func worker(p Params, startY, endY, startX, endX int, world [][]uint8, c distributorChannels, turn int) {
 	flipFragment := make([]util.Cell, (endY-startY)*endX/2)
 	newPart := make([][]uint8, endY-startY)
+	prevWorld := make([][]uint8, p.ImageHeight)
+	for h := range world {
+		prevWorld[h] = make([]uint8, endX)
+	}
 	for i := range newPart {
 		newPart[i] = make([]uint8, endX)
 	}
@@ -46,9 +50,12 @@ func worker(p Params, startY, endY, startX, endX int, world [][]uint8, c distrib
 	for read == false {
 		rCond.Wait()
 	}
-	newPart, flipFragment = calculateNextState(p.ImageHeight, p.ImageWidth, startY, endY, world)
+	for j := range world {
+		copy(prevWorld[j], world[j])
+	}
 	rCond.L.Unlock()
 	rWg.Done()
+	newPart, flipFragment = calculateNextState(p.ImageHeight, p.ImageWidth, startY, endY, prevWorld)
 
 	// Waits other goroutines to copy the previous world
 
