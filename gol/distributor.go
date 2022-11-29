@@ -3,7 +3,6 @@ package gol
 import (
 	"fmt"
 	"strconv"
-	"sync"
 	"time"
 
 	"uk.ac.bris.cs/gameoflife/util"
@@ -23,31 +22,23 @@ const Quit int = 1
 const Pause int = 2
 const unPause int = 3
 
-var wg sync.WaitGroup
-var rWg sync.WaitGroup
-var rMutex = new(sync.Mutex)
-var mutex = new(sync.Mutex)
-var cond = sync.NewCond(mutex)
-var rCond = sync.NewCond(rMutex)
-var read bool = false
-var write bool = false
-
 // startY <= target < endY,
 // startX <= target < endX (Same for every worker since we slice horizontally)
 // Modify params in calculateNextState
-func worker(p Params, startY, endY, startX, endX int, world [][]uint8, out chan<- [][]uint8, flip chan<- []util.Cell) {
-	flipFragment := make([]util.Cell, (endY-startY)*endX)
+func worker(p Params, startY, endY, startX, endX int, world [][]uint8, out chan<- [][]uint8, c distributorChannels, turn int) {
+	flipFragment := make([]util.Cell, (endY-startY)*endX/2)
 	newPart := make([][]uint8, endY-startY)
-	prevWorld := make([][]uint8, p.ImageHeight)
-	for h := range world {
-		prevWorld[h] = make([]uint8, endX)
-	}
 	for i := range newPart {
 		newPart[i] = make([]uint8, endX)
 	}
 	newPart, flipFragment = calculateNextState(p.ImageHeight, p.ImageWidth, startY, endY, world)
+	for _, cell := range flipFragment {
+		c.events <- CellFlipped{
+			CompletedTurns: turn,
+			Cell:           cell,
+		}
+	}
 	out <- newPart
-	flip <- flipFragment
 }
 
 func handleOutput(p Params, c distributorChannels, world [][]uint8, t int) {
@@ -63,26 +54,6 @@ func handleOutput(p Params, c distributorChannels, world [][]uint8, t int) {
 		CompletedTurns: t,
 		Filename:       outFilename,
 	}
-}
-
-// Gets input from IO and initialises cellflip
-func handleInput(p Params, c distributorChannels, world [][]uint8) [][]uint8 {
-	filename := strconv.Itoa(p.ImageHeight) + "x" + strconv.Itoa(p.ImageWidth)
-	c.ioCommand <- 1
-	c.ioFilename <- filename
-	for y := 0; y < p.ImageHeight; y++ {
-		for x := 0; x < p.ImageWidth; x++ {
-			num := <-c.ioInput
-			world[y][x] = num
-			if num == 255 {
-				c.events <- CellFlipped{
-					CompletedTurns: 0,
-					Cell:           util.Cell{X: x, Y: y},
-				}
-			}
-		}
-	}
-	return world
 }
 
 func handleKeyPress(p Params, c distributorChannels, keyPresses <-chan rune, world <-chan [][]uint8, t <-chan int, action chan int) {
@@ -134,16 +105,31 @@ func handleKeyPress(p Params, c distributorChannels, keyPresses <-chan rune, wor
 
 // distributor divides the work between workers and interacts with other goroutines.
 func distributor(p Params, c distributorChannels, keyPresses <-chan rune) {
+	// TODO: Create a 2D slice to store the world.
 	world := make([][]uint8, p.ImageHeight)
 	prevWorld := make([][]uint8, p.ImageHeight)
-	sharedWorld := make([][]uint8, p.ImageHeight)
 	for i := range world {
 		world[i] = make([]uint8, p.ImageWidth)
 		prevWorld[i] = make([]uint8, p.ImageWidth)
-		sharedWorld[i] = make([]uint8, p.ImageWidth)
 	}
 
-	world = handleInput(p, c, world)
+	filename := strconv.Itoa(p.ImageHeight) + "x" + strconv.Itoa(p.ImageWidth)
+
+	// Commands IO to read the initial file, giving the filename via the channel.
+	c.ioCommand <- 1
+	c.ioFilename <- filename
+	for y := 0; y < p.ImageHeight; y++ {
+		for x := 0; x < p.ImageWidth; x++ {
+			num := <-c.ioInput
+			world[y][x] = num
+			if num == 255 {
+				c.events <- CellFlipped{
+					CompletedTurns: 0,
+					Cell:           util.Cell{X: x, Y: y},
+				}
+			}
+		}
+	}
 
 	// TODO: Execute all turns of the Game of Life.
 	turn := 0
@@ -202,15 +188,8 @@ func distributor(p Params, c distributorChannels, keyPresses <-chan rune) {
 			//}
 		}
 	}()
-
-	// var worldFragment [][]uint8
-	channels := make([]chan [][]uint8, p.Threads)
-	cellFlip := make([]util.Cell, p.ImageHeight*p.ImageWidth)
-	// flipChan := make([]chan []util.Cell, p.Threads)
-	unit := int(p.ImageHeight / p.Threads)
-
 	for t := 0; t < p.Turns; t++ {
-		cellFlip = make([]util.Cell, p.ImageHeight*p.ImageWidth)
+		cellFlip := make([]util.Cell, p.ImageHeight*p.ImageWidth)
 		if pause {
 			<-waitToUnpause
 		}
@@ -221,26 +200,32 @@ func distributor(p Params, c distributorChannels, keyPresses <-chan rune) {
 			}
 			if p.Threads == 1 {
 				world, cellFlip = calculateNextState(p.ImageHeight, p.ImageWidth, 0, p.ImageHeight, world)
+				for _, cell := range cellFlip {
+					c.events <- CellFlipped{
+						CompletedTurns: turn,
+						Cell:           cell,
+					}
+				}
 			} else {
 				var worldFragment [][]uint8
 				channels := make([]chan [][]uint8, p.Threads)
-				flipChan := make([]chan []util.Cell, p.Threads)
+				// flipChan := make([]chan []util.Cell, p.Threads)
 				unit := int(p.ImageHeight / p.Threads)
 				for i := 0; i < p.Threads; i++ {
 					channels[i] = make(chan [][]uint8)
-					flipChan[i] = make(chan []util.Cell)
+					// flipChan[i] = make(chan []util.Cell)
 					if i == p.Threads-1 {
 						// Handling with problems if threads division goes with remainders
-						go worker(p, i*unit, p.ImageHeight, 0, p.ImageWidth, world, channels[i], flipChan[i])
+						go worker(p, i*unit, p.ImageHeight, 0, p.ImageWidth, world, channels[i], c, turn)
 					} else {
-						go worker(p, i*unit, (i+1)*unit, 0, p.ImageWidth, world, channels[i], flipChan[i])
+						go worker(p, i*unit, (i+1)*unit, 0, p.ImageWidth, world, channels[i], c, turn)
 					}
 				}
 				for i := 0; i < p.Threads; i++ {
 					worldPart := <-channels[i]
 					worldFragment = append(worldFragment, worldPart...)
-					cellPart := <-flipChan[i]
-					cellFlip = append(cellFlip, cellPart...)
+					// cellPart := <-flipChan[i]
+					// cellFlip = append(cellFlip, cellPart...)
 				}
 				for j := range worldFragment {
 					copy(world[j], worldFragment[j])
@@ -248,17 +233,10 @@ func distributor(p Params, c distributorChannels, keyPresses <-chan rune) {
 
 			}
 
-			for _, cell := range cellFlip {
-				// defer wg.Done()
-				c.events <- CellFlipped{
-					CompletedTurns: turn,
-					Cell:           cell,
-				}
-			}
-
 			c.events <- TurnComplete{
 				CompletedTurns: turn,
 			}
+
 		} else {
 			if quit {
 				break
