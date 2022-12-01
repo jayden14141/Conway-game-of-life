@@ -12,26 +12,19 @@ import (
 // TestTrace is a special test to be used to generate traces - not a real test
 func TestTrace(t *testing.T) {
 	traceParams := gol.Params{
-		Turns:       100,
-		Threads:     8,
-		ImageWidth:  512,
-		ImageHeight: 512,
+		Turns:       10,
+		Threads:     4,
+		ImageWidth:  64,
+		ImageHeight: 64,
 	}
 	f, _ := os.Create("trace.out")
 	events := make(chan gol.Event)
 	err := trace.Start(f)
 	util.Check(err)
 	go gol.Run(traceParams, events, nil)
-	complete := false
-	for !complete {
-		event := <-events
-		switch event.(type) {
-		case gol.FinalTurnComplete:
-			complete = true
-		}
+	for range events {
 	}
 	trace.Stop()
 	err = f.Close()
 	util.Check(err)
-
 }
